@@ -5,7 +5,14 @@ package spin.leapwatch;
  */
 
 import android.os.AsyncTask;
+import android.util.Log;
 import android.widget.TextView;
+
+import com.google.android.gms.common.api.GoogleApiClient;
+import com.google.android.gms.wearable.MessageApi;
+import com.google.android.gms.wearable.Node;
+import com.google.android.gms.wearable.NodeApi;
+import com.google.android.gms.wearable.Wearable;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -20,17 +27,33 @@ public class Client extends AsyncTask<Void, Void, Void> {
     String response = "";
     TextView textResponse;
 
-    Client(String addr, int port, TextView textResponse) {
+    private static final String MESSAGE_SENT = "/message_sent";
+
+    public GoogleApiClient googleApiClient;
+
+    public Client(String addr, int port, TextView textResponse, GoogleApiClient googleApiClient) {
         dstAddress = addr;
         dstPort = port;
         this.textResponse = textResponse;
+        this.googleApiClient = googleApiClient;
+    }
+
+    private void sendMessage(final String path, final String text) {
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                NodeApi.GetConnectedNodesResult nodes = Wearable.NodeApi.getConnectedNodes(googleApiClient).await();
+                for (Node node : nodes.getNodes()) {
+                    MessageApi.SendMessageResult result = Wearable.MessageApi.sendMessage(
+                            googleApiClient, node.getId(), path, text.getBytes()).await();
+                }
+            }
+        }).start();
     }
 
     @Override
     protected Void doInBackground(Void... arg0) {
-
         Socket socket = null;
-
         try {
             socket = new Socket(dstAddress, dstPort);
 
@@ -47,18 +70,15 @@ public class Client extends AsyncTask<Void, Void, Void> {
             while ((bytesRead = inputStream.read(buffer)) != -1) {
                 byteArrayOutputStream.write(buffer, 0, bytesRead);
                 response = byteArrayOutputStream.toString("UTF-8");
-                System.out.println(response);
-
+                Log.d("Client", response);
                 this.publishProgress();
-
+                sendMessage(MESSAGE_SENT, response);
             }
 
         } catch (UnknownHostException e) {
-            // TODO Auto-generated catch block
             e.printStackTrace();
             response = "UnknownHostException: " + e.toString();
         } catch (IOException e) {
-            // TODO Auto-generated catch block
             e.printStackTrace();
             response = "IOException: " + e.toString();
         } finally {
@@ -66,7 +86,6 @@ public class Client extends AsyncTask<Void, Void, Void> {
                 try {
                     socket.close();
                 } catch (IOException e) {
-                    // TODO Auto-generated catch block
                     e.printStackTrace();
                 }
             }
